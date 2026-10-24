@@ -9,8 +9,6 @@
   html, body { height: 100%; background: #000; color: #eee;
     font-family: "Segoe UI", Tahoma, Arial, sans-serif; overflow: hidden; }
 
-
- 
   #barwrap {
     position: relative; height: 38px; background: #151515;
     border-bottom: 1px solid #2a2a2a;
@@ -130,7 +128,24 @@ async function findLive(ch) {
     `https://www.googleapis.com/youtube/v3/videos?part=snippet,status&id=${ids.join(",")}&key=${API_KEY}`);
   const j2 = await r2.json();
   if (j2.error) throw new Error(j2.error.message || "API error");
-  const live = (j2.items || []).find(v => v.snippet.liveBroadcastContent === "live");
+  let live = (j2.items || []).find(v => v.snippet.liveBroadcastContent === "live");
+
+  // احتياطي: بحث مباشر عن البث الحي للقناة (يستهلك حصة أكبر لكنه أدق)
+  if (!live) {
+    const r3 = await fetch(
+      `https://www.googleapis.com/youtube/v3/search?part=id&channelId=${ch.yt}&eventType=live&type=video&maxResults=3&key=${API_KEY}`);
+    const j3 = await r3.json();
+    if (j3.error) throw new Error(j3.error.message || "API error");
+    const sid = (j3.items || []).map(i => i.id.videoId).filter(Boolean);
+    if (sid.length) {
+      const r4 = await fetch(
+        `https://www.googleapis.com/youtube/v3/videos?part=snippet,status&id=${sid.join(",")}&key=${API_KEY}`);
+      const j4 = await r4.json();
+      if (j4.error) throw new Error(j4.error.message || "API error");
+      const all = (j4.items || []).filter(v => v.snippet.liveBroadcastContent === "live");
+      live = all.find(v => v.status.embeddable !== false) || all[0];
+    }
+  }
   const data = live ? { vid: live.id, embeddable: live.status.embeddable !== false } : null;
 
   try { localStorage.setItem(ck, JSON.stringify({ t: Date.now(), data })); } catch (e) {}
