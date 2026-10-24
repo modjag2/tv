@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>جدار البث المباشر</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #000; color: #eee;
+    font-family: "Segoe UI", Tahoma, Arial, sans-serif; overflow: hidden; }
+
+  #barwrap {
+    position: relative; height: 38px; background: #151515;
+    border-bottom: 1px solid #2a2a2a;
+  }
+  #bar {
+    height: 100%; display: flex; align-items: center; gap: 4px;
+    padding: 0 8px; overflow-x: auto; white-space: nowrap;
+    scrollbar-width: none;
+  }
+  #bar::-webkit-scrollbar { height: 0; display: none; }
+
+  /* تلاشي على أطراف الشريط يدل على وجود تتمة */
+  #barwrap::before, #barwrap::after {
+    content: ""; position: absolute; top: 0; bottom: 0; width: 48px;
+    pointer-events: none; opacity: 0; transition: opacity .2s; z-index: 2;
+  }
+  /* الطرف الأيسر = نهاية الشريط في الواجهة العربية */
+  #barwrap::before { left: 0;  background: linear-gradient(to right, #151515 15%, rgba(21,21,21,0)); }
+  #barwrap::after  { right: 0; background: linear-gradient(to left,  #151515 15%, rgba(21,21,21,0)); }
+  #barwrap.fade-end::before   { opacity: 1; }
+  #barwrap.fade-start::after  { opacity: 1; }
+
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 14px; font-size: 13px;
+    background: #232323; cursor: pointer; user-select: none;
+    border: 1px solid transparent; transition: background .15s;
+  }
+  .chip:hover { background: #2f2f2f; }
+  .chip.on { background: #1f3b5c; border-color: #3a74b5; }
+  .chip input { accent-color: #3a8bff; cursor: pointer; }
+
+  .tool { background: transparent; color: #aaa; border: 1px solid #333;
+    border-radius: 14px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+  .tool:hover { color: #fff; border-color: #666; }
+  .sep { width: 1px; height: 20px; background: #333; margin: 0 4px; flex: none; }
+
+  #wall {
+    height: calc(100% - 38px); width: 100%;
+    display: grid; gap: 2px; background: #000;
+  }
+  .cell { position: relative; background: #0b0b0b; min-width: 0; min-height: 0; }
+  .cell iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .msg {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 8px;
+    color: #999; font-size: 14px; text-align: center; padding: 12px;
+  }
+  .msg b { color: #ddd; font-size: 15px; }
+  .msg a { color: #5aa2ff; }
+
+  #empty {
+    height: 100%; display: flex; align-items: center; justify-content: center;
+    color: #666; font-size: 18px; text-align: center; padding: 20px;
+  }
+</style>
+</head>
+<body>
+
+<div id="barwrap"><div id="bar"></div></div>
+<div id="wall"></div>
+
+<script>
+// =====================================================================
+//  (1) ضع مفتاح اليوتيوب بين علامتي التنصيص هنا:
+//      مثال:  const API_KEY = "AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
+// =====================================================================
+const API_KEY = "AIzaSyDtMD1OasbmmxFFUeZA62SQVejl3Fxp77c";
+
+// =====================================================================
+//  (2) قائمة القنوات. الحقل video اختياري: إذا عرفت رقم بث مباشر ثابت
+//      (الجزء الذي بعد v= في رابط الفيديو) ضعه فيه وسيُستخدم مباشرة.
+// =====================================================================
+const CHANNELS = [
+  { id: "alghad",       name: "الغد",               yt: "UCH4UNKBHSNwstan99YDoCVg", video: "" },
+  { id: "syria_news",   name: "الإخبارية السورية",  yt: "UClm30t2F4FHzzkN9Irtr-8A", video: "" },
+  { id: "al_mamlaka",   name: "المملكة",            yt: "UC0jiFAzTgl17k7awGbuoYew", video: "" },
+  { id: "syria_tv",     name: "تلفزيون سوريا",      yt: "UCJsZ22yL1IW0R2u0jnnyYog", video: "" },
+  { id: "aljazeera",    name: "الجزيرة",            yt: "UCfiwzLy-8yKzIbsmZTzxDgw", video: "" },
+  { id: "alarabiya",    name: "العربية",            yt: "UCahpxixMCwoANAftn6IxkTg", video: "" },
+  { id: "alhadath",     name: "الحدث",              yt: "UCrj5BGAhtWxDfqbza9T9hqA", video: "" },
+  { id: "ekhbariya_sa", name: "الإخبارية السعودية", yt: "UCV01ajGl6nt09h40iDoHDNg", video: "" },
+  { id: "shams",        name: "شمس",                yt: "UCO9kL7zKW0xINGqcX8yXOZw", video: "" },
+  { id: "trt_arabi",    name: "TRT عربي",           yt: "UC5GvVahlgulCyo4cshSmbcg", video: "" }
+];
+
+const KEY = "wall_selected_v2";
+const CACHE_MIN = 30; // مدة حفظ رقم البث بالدقائق (لتوفير حصة المفتاح)
+const bar  = document.getElementById("bar");
+const wall = document.getElementById("wall");
+
+let selected = [];
+try { selected = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) {}
+selected = selected.filter(id => CHANNELS.some(c => c.id === id));
+function save() { try { localStorage.setItem(KEY, JSON.stringify(selected)); } catch (e) {} }
+
+// ---------- البحث عن البث المباشر الحالي عبر YouTube API ----------
+async function findLive(ch) {
+  if (ch.video) return { vid: ch.video, embeddable: true };
+
+  const ck = "live_" + ch.id;
+  try {
+    const c = JSON.parse(localStorage.getItem(ck));
+    if (c && Date.now() - c.t < CACHE_MIN * 60000) return c.data;
+  } catch (e) {}
+
+  // قائمة آخر فيديوهات القناة (تكلفتها قليلة جداً من حصة المفتاح)
+  const pl = "UU" + ch.yt.slice(2);
+  const r1 = await fetch(
+    `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&maxResults=15&playlistId=${pl}&key=${API_KEY}`);
+  const j1 = await r1.json();
+  if (j1.error) throw new Error(j1.error.message || "API error");
+  const ids = (j1.items || []).map(i => i.contentDetails.videoId);
+  if (!ids.length) return null;
+
+  const r2 = await fetch(
+    `https://www.googleapis.com/youtube/v3/videos?part=snippet,status&id=${ids.join(",")}&key=${API_KEY}`);
+  const j2 = await r2.json();
+  if (j2.error) throw new Error(j2.error.message || "API error");
+  const live = (j2.items || []).find(v => v.snippet.liveBroadcastContent === "live");
+  const data = live ? { vid: live.id, embeddable: live.status.embeddable !== false } : null;
+
+  try { localStorage.setItem(ck, JSON.stringify({ t: Date.now(), data })); } catch (e) {}
+  return data;
+}
+
+function showMsg(cell, html) {
+  cell.innerHTML = `<div class="msg">${html}</div>`;
+}
+
+async function loadCell(ch, cell) {
+  showMsg(cell, `<b>${ch.name}</b>جاري تحميل البث...`);
+
+  // بدون مفتاح: نحاول الرابط المباشر للقناة (قد لا يعمل مع كل القنوات)
+  if (!API_KEY && !ch.video) {
+    cell.innerHTML = "";
+    cell.appendChild(makeFrame(ch.name,
+      `https://www.youtube.com/embed/live_stream?channel=${ch.yt}&autoplay=1&mute=1&playsinline=1`));
+    return;
+  }
+
+  try {
+    const res = await findLive(ch);
+    if (!cell.isConnected) return;
+    if (!res) {
+      showMsg(cell, `<b>${ch.name}</b>لا يوجد بث مباشر حالياً<a target="_blank" rel="noopener" href="https://www.youtube.com/channel/${ch.yt}/live">افتح صفحة القناة</a>`);
+    } else if (!res.embeddable) {
+      showMsg(cell, `<b>${ch.name}</b>هذه القناة تمنع عرض بثها داخل المواقع<a target="_blank" rel="noopener" href="https://www.youtube.com/watch?v=${res.vid}">شاهد على يوتيوب</a>`);
+    } else {
+      cell.innerHTML = "";
+      cell.appendChild(makeFrame(ch.name,
+        `https://www.youtube.com/embed/${res.vid}?autoplay=1&mute=1&playsinline=1&rel=0`));
+    }
+  } catch (e) {
+    showMsg(cell, `<b>${ch.name}</b>تعذّر التحميل<span style="direction:ltr;font-size:12px">${e.message}</span>`);
+  }
+}
+
+function makeFrame(title, src) {
+  const f = document.createElement("iframe");
+  f.src = src; f.title = title;
+  f.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+  f.allowFullscreen = true;
+  f.referrerPolicy = "strict-origin-when-cross-origin";
+  return f;
+}
+
+// ---------- الشريط العلوي ----------
+function buildBar() {
+  bar.innerHTML = "";
+  CHANNELS.forEach(ch => {
+    const label = document.createElement("label");
+    label.className = "chip" + (selected.includes(ch.id) ? " on" : "");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = selected.includes(ch.id);
+    cb.addEventListener("change", () => {
+      if (cb.checked) { if (!selected.includes(ch.id)) selected.push(ch.id); }
+      else selected = selected.filter(x => x !== ch.id);
+      label.classList.toggle("on", cb.checked);
+      save(); render();
+    });
+    label.append(cb, document.createTextNode(ch.name));
+    bar.appendChild(label);
+  });
+
+  const sep = document.createElement("span"); sep.className = "sep"; bar.appendChild(sep);
+
+  const all = document.createElement("button");
+  all.className = "tool"; all.textContent = "تحديد الكل";
+  all.onclick = () => { selected = CHANNELS.map(c => c.id); save(); buildBar(); render(); };
+
+  const none = document.createElement("button");
+  none.className = "tool"; none.textContent = "إلغاء الكل";
+  none.onclick = () => { selected = []; save(); buildBar(); render(); };
+
+  const reload = document.createElement("button");
+  reload.className = "tool"; reload.textContent = "تحديث البث";
+  reload.onclick = () => {
+    CHANNELS.forEach(c => { try { localStorage.removeItem("live_" + c.id); } catch (e) {} });
+    Object.keys(cells).forEach(id => { cells[id].remove(); delete cells[id]; });
+    render();
+  };
+
+  bar.append(all, none, reload);
+}
+
+// ---------- جدار الشاشات ----------
+const cells = {};
+
+function render() {
+  Object.keys(cells).forEach(id => {
+    if (!selected.includes(id)) { cells[id].remove(); delete cells[id]; }
+  });
+
+  const empty = document.getElementById("empty");
+  if (empty) empty.remove();
+
+  if (selected.length === 0) {
+    wall.style.gridTemplateColumns = "1fr";
+    wall.style.gridTemplateRows = "1fr";
+    const d = document.createElement("div");
+    d.id = "empty";
+    d.textContent = "اختر قناة أو أكثر من الشريط العلوي لعرض البث المباشر";
+    wall.appendChild(d);
+    return;
+  }
+
+  selected.forEach(id => {
+    if (cells[id]) return;
+    const ch = CHANNELS.find(c => c.id === id);
+    const cell = document.createElement("div");
+    cell.className = "cell";
+    cells[id] = cell;
+    wall.appendChild(cell);
+    loadCell(ch, cell);
+  });
+
+  CHANNELS.forEach(c => { if (cells[c.id]) wall.appendChild(cells[c.id]); });
+
+  const n = selected.length;
+  const w = wall.clientWidth, h = wall.clientHeight;
+  let best = { cols: 1, rows: n, score: -1 };
+  for (let cols = 1; cols <= n; cols++) {
+    const rows = Math.ceil(n / cols);
+    const cw = w / cols, chh = h / rows;
+    const fit = Math.min(cw / (16 / 9), chh) * Math.min(cw, chh * 16 / 9);
+    if (fit > best.score) best = { cols, rows, score: fit };
+  }
+  wall.style.gridTemplateColumns = `repeat(${best.cols}, 1fr)`;
+  wall.style.gridTemplateRows = `repeat(${best.rows}, 1fr)`;
+}
+
+// ---------- تلاشي أطراف الشريط ----------
+const barwrap = document.getElementById("barwrap");
+function updateFade() {
+  const max = bar.scrollWidth - bar.clientWidth;
+  const pos = Math.abs(bar.scrollLeft); // في RTL قيمة scrollLeft سالبة
+  barwrap.classList.toggle("fade-end",   max > 2 && pos < max - 2);
+  barwrap.classList.toggle("fade-start", max > 2 && pos > 2);
+}
+bar.addEventListener("scroll", updateFade, { passive: true });
+// تمرير الشريط بعجلة الماوس على الكمبيوتر
+bar.addEventListener("wheel", e => {
+  if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+    bar.scrollLeft -= e.deltaY; // اتجاه RTL
+    e.preventDefault();
+  }
+}, { passive: false });
+
+let rt;
+window.addEventListener("resize", () => {
+  updateFade();
+  clearTimeout(rt); rt = setTimeout(render, 150);
+});
+buildBar();
+render();
+updateFade();
+setTimeout(updateFade, 300);
+</script>
+</body>
+</html>
