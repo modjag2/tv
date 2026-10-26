@@ -109,12 +109,11 @@
 <div id="hot"></div>
 <div id="wall"></div>
 
+<script src="config.js"></script>
 <script>
-// =====================================================================
-//  (1) ضع مفتاح اليوتيوب بين علامتي التنصيص هنا:
-//      مثال:  const API_KEY = "AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
-// =====================================================================
-const API_KEY = "AIzaSyDtMD1OasbmmxFFUeZA62SQVejl3Fxp77c";
+// المفتاح يُقرأ من config.js المحلي (غير مرفوع على GitHub).
+// انسخ config.example.js إلى config.js وضع المفتاح هناك.
+const API_KEY = (window.TV_CONFIG && window.TV_CONFIG.API_KEY) || "";
 
 // =====================================================================
 //  (2) قائمة القنوات. الحقل video اختياري: إذا عرفت رقم بث مباشر ثابت
